@@ -93,6 +93,8 @@ p = load_config_file()
 
 if 'nt' != os.name:
     active_user   = pwd.getpwuid(os.geteuid())[0]
+else:
+    active_user = ""
 
 # check all of these extensions when looking for yaml files for things like
 # group variables -- really anything we can load
