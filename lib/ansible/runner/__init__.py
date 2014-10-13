@@ -18,7 +18,10 @@
 import multiprocessing
 import signal
 import os
-import pwd
+
+if 'nt' != os.name:
+  import pwd
+  
 import Queue
 import random
 import traceback
@@ -242,7 +245,7 @@ class Runner(object):
         # Also where we will store the hosts to run on once discovered
         self.run_hosts = run_hosts
 
-        if self.transport == 'local':
+        if self.transport == 'local' and 'nt' != os.name:
             self.remote_user = pwd.getpwuid(os.geteuid())[0]
 
         if module_path is not None:
