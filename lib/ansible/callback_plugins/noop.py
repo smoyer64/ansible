@@ -1,4 +1,4 @@
-# (C) 2012-2013, Michael DeHaan, <michael.dehaan@gmail.com>
+# (C) 2012-2014, Michael DeHaan, <michael.dehaan@gmail.com>
 
 # This file is part of Ansible
 #
@@ -21,11 +21,16 @@ class CallbackModule(object):
     """
     this is an example ansible callback file that does nothing.  You can drop
     other classes in the same directory to define your own handlers.  Methods
-    you do not use can be omitted.
+    you do not use can be omitted. If self.disabled is set to True, the plugin
+    methods will not be called.
 
     example uses include: logging, emailing, storing info, etc
     """
 
+    def __init__(self):
+        #if foo:
+        #    self.disabled = True
+        pass
 
     def on_any(self, *args, **kwargs):
         pass
@@ -34,9 +39,6 @@ class CallbackModule(object):
         pass
 
     def runner_on_ok(self, host, res):
-        pass
-
-    def runner_on_error(self, host, msg):
         pass
 
     def runner_on_skipped(self, host, item=None):
@@ -63,10 +65,10 @@ class CallbackModule(object):
     def playbook_on_notify(self, host, handler):
         pass
 
-    def on_no_hosts_matched(self):
+    def playbook_on_no_hosts_matched(self):
         pass
 
-    def on_no_hosts_remaining(self):
+    def playbook_on_no_hosts_remaining(self):
         pass
 
     def playbook_on_task_start(self, name, is_conditional):
@@ -84,7 +86,7 @@ class CallbackModule(object):
     def playbook_on_not_import_for_host(self, host, missing_file):
         pass
 
-    def playbook_on_play_start(self, pattern):
+    def playbook_on_play_start(self, name):
         pass
 
     def playbook_on_stats(self, stats):

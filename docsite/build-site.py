@@ -45,7 +45,7 @@ class SphinxBuilder(object):
         try:
             buildername = 'html'
 
-            outdir = os.path.abspath(os.getcwd())
+            outdir = os.path.abspath(os.path.join(os.getcwd(), "htmlout"))
             # Create the output directory if it doesn't exist
             if not os.access(outdir, os.F_OK):
                 os.mkdir(outdir)
@@ -99,5 +99,5 @@ if __name__ == '__main__':
 
     if "view" in sys.argv:
         import webbrowser
-        if not webbrowser.open('index.html'):
+        if not webbrowser.open('htmlout/index.html'):
             print >> sys.stderr, "Could not open on your webbrowser."

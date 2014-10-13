@@ -23,9 +23,10 @@
 # modules
 #
 # example:
-#    test-module -m ../library/command -a "/bin/sleep 3"
-#    test-module -m ../library/service -a "name=httpd ensure=restarted"
-#    test-module -m ../library/service -a "name=httpd ensure=restarted" --debugger /usr/bin/pdb
+#    test-module -m ../library/commands/command -a "/bin/sleep 3"
+#    test-module -m ../library/system/service -a "name=httpd ensure=restarted"
+#    test-module -m ../library/system/service -a "name=httpd ensure=restarted" --debugger /usr/bin/pdb
+#    test-modulr -m ../library/file/lineinfile -a "dest=/etc/exports line='/srv/home hostname1(rw,sync)'" --check
 
 import sys
 import base64
@@ -56,6 +57,11 @@ def parse():
         help="module argument string")
     parser.add_option('-D', '--debugger', dest='debugger', 
         help="path to python debugger (e.g. /usr/bin/pdb)")
+    parser.add_option('-I', '--interpreter', dest='interpreter',
+        help="path to interpeter to use for this module (e.g. ansible_python_interpreter=/usr/bin/python)",
+        metavar='INTERPRETER_TYPE=INTERPRETER_PATH')
+    parser.add_option('-c', '--check', dest='check', action='store_true',
+        help="run the module in check mode")
     options, args = parser.parse_args()
     if not options.module_path:
         parser.print_help()
@@ -63,44 +69,69 @@ def parse():
     else:
         return options, args
 
-def write_argsfile(argstring):
+def write_argsfile(argstring, json=False):
     """ Write args to a file for old-style module's use. """
     argspath = os.path.expanduser("~/.ansible_test_module_arguments")
     argsfile = open(argspath, 'w')
+    if json:
+        args = utils.parse_kv(argstring)
+        argstring = utils.jsonify(args)
     argsfile.write(argstring)
     argsfile.close()
     return argspath
 
-def boilerplate_module(modfile, args):
+def boilerplate_module(modfile, args, interpreter, check):
     """ simulate what ansible does with new style modules """
 
-    module_fh = open(modfile)
-    module_data = module_fh.read()
-    included_boilerplate = module_data.find(module_common.REPLACER) != -1
-    module_fh.close()
+    #module_fh = open(modfile)
+    #module_data = module_fh.read()
+    #module_fh.close()
 
-    if included_boilerplate:
+    replacer = module_common.ModuleReplacer()
 
-        module_data = module_data.replace(module_common.REPLACER, module_common.MODULE_COMMON)
-        encoded_args = "\"\"\"%s\"\"\"" % args.replace("\"","\\\"")
-        module_data = module_data.replace(module_common.REPLACER_ARGS, encoded_args)
-        encoded_lang = "\"\"\"%s\"\"\"" % C.DEFAULT_MODULE_LANG
-        empty_complex = "\"\"\"%s\"\"\"" % "{}"
-        module_data = module_data.replace(module_common.REPLACER_LANG, encoded_lang)
-        module_data = module_data.replace('syslog.LOG_USER', "syslog.%s" % C.DEFAULT_SYSLOG_FACILITY)
-        module_data = module_data.replace(module_common.REPLACER_COMPLEX, empty_complex)
+    #included_boilerplate = module_data.find(module_common.REPLACER) != -1 or module_data.find("import ansible.module_utils") != -1
 
-        modfile2_path = os.path.expanduser("~/.ansible_module_generated")
-        print "* including generated source, if any, saving to: %s" % modfile2_path
-        print "* this will offset any line numbers in tracebacks/debuggers!"
-        modfile2 = open(modfile2_path, 'w')
-        modfile2.write(module_data)
-        modfile2.close()
-        modfile = modfile2_path
-        return (modfile2_path, included_boilerplate)
-    else:
-        print "* module boilerplate substitution not requested in module, line numbers will be unaltered"
-        return (modfile, included_boilerplate)
+    complex_args = {}
+    if args.startswith("@"):
+        # Argument is a YAML file (JSON is a subset of YAML)
+        complex_args = utils.combine_vars(complex_args, utils.parse_yaml_from_file(args[1:]))
+        args=''
+    elif args.startswith("{"):
+        # Argument is a YAML document (not a file)
+        complex_args = utils.combine_vars(complex_args, utils.parse_yaml(args))
+        args=''
+
+    inject = {}
+    if interpreter:
+        if '=' not in interpreter:
+            print 'interpeter must by in the form of ansible_python_interpreter=/usr/bin/python'
+            sys.exit(1)
+        interpreter_type, interpreter_path = interpreter.split('=')
+        if not interpreter_type.startswith('ansible_'):
+            interpreter_type = 'ansible_%s' % interpreter_type
+        if not interpreter_type.endswith('_interpreter'):
+            interpreter_type = '%s_interpreter' % interpreter_type
+        inject[interpreter_type] = interpreter_path
+
+    if check:
+         complex_args['CHECKMODE'] = True
+
+    (module_data, module_style, shebang) = replacer.modify_module(
+        modfile, 
+        complex_args,
+        args,
+        inject 
+    )
+
+    modfile2_path = os.path.expanduser("~/.ansible_module_generated")
+    print "* including generated source, if any, saving to: %s" % modfile2_path
+    print "* this may offset any line numbers in tracebacks/debuggers!"
+    modfile2 = open(modfile2_path, 'w')
+    modfile2.write(module_data)
+    modfile2.close()
+    modfile = modfile2_path
+
+    return (modfile2_path, module_style)
 
 def runtest( modfile, argspath):
     """Test run a module, piping it's output for reporting."""
@@ -142,16 +173,21 @@ def rundebug(debugger, modfile, argspath):
 def main(): 
 
     options, args = parse()
-    (modfile, is_new_style) = boilerplate_module(options.module_path, options.module_args)
+    (modfile, module_style) = boilerplate_module(options.module_path, options.module_args, options.interpreter, options.check)
+
     argspath=None
-    if not is_new_style:
-        argspath = write_argsfile(options.module_args)
+    if module_style != 'new':
+        if module_style == 'non_native_want_json':
+            argspath = write_argsfile(options.module_args, json=True)
+        elif module_style == 'old':
+            argspath = write_argsfile(options.module_args, json=False)
+        else:
+            raise Exception("internal error, unexpected module style: %s" % module_style)
     if options.debugger: 
         rundebug(options.debugger, modfile, argspath)
     else:
         runtest(modfile, argspath)
-	
+        
 if __name__ == "__main__":
     main()
-
 

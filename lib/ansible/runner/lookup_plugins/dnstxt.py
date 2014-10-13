@@ -40,9 +40,13 @@ class LookupModule(object):
         if HAVE_DNS == False:
             raise errors.AnsibleError("Can't LOOKUP(dnstxt): module dns.resolver is not installed")
 
-    def run(self, terms, **kwargs):
+    def run(self, terms, inject=None, **kwargs):
+
+        terms = utils.listify_lookup_plugin_terms(terms, self.basedir, inject) 
+
         if isinstance(terms, basestring):
             terms = [ terms ]
+
         ret = []
         for term in terms:
             domain = term.split()[0]
@@ -57,7 +61,7 @@ class LookupModule(object):
                 string = 'NXDOMAIN'
             except dns.resolver.Timeout:
                 string = ''
-            except dns.exception.DNSException as e:
+            except dns.exception.DNSException, e:
                 raise errors.AnsibleError("dns.resolver unhandled exception", e)
 
             ret.append(''.join(string))

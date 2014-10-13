@@ -18,7 +18,8 @@
 from ansible.callbacks import vv
 from ansible.errors import AnsibleError as ae
 from ansible.runner.return_data import ReturnData
-from ansible.utils import getch, template, parse_kv
+from ansible.utils import getch, parse_kv
+import ansible.utils.template as template
 from termios import tcflush, TCIFLUSH
 import datetime
 import sys
@@ -56,7 +57,8 @@ class ActionModule(object):
         args = {}
         if complex_args:
             args.update(complex_args)
-        args.update(parse_kv(template(self.runner.basedir, module_args, inject)))
+        # extra template call unneeded?
+        args.update(parse_kv(template.template(self.runner.basedir, module_args, inject)))
 
         # Are 'minutes' or 'seconds' keys that exist in 'args'?
         if 'minutes' in args or 'seconds' in args:
@@ -75,11 +77,11 @@ class ActionModule(object):
         # Is 'prompt' a key in 'args'?
         elif 'prompt' in args:
             self.pause_type = 'prompt'
-            self.prompt = "[%s]\n%s: " % (hosts, args['prompt'])
+            self.prompt = "[%s]\n%s:\n" % (hosts, args['prompt'])
         # Is 'args' empty, then this is the default prompted pause
         elif len(args.keys()) == 0:
             self.pause_type = 'prompt'
-            self.prompt = "[%s]\nPress enter to continue: " % hosts
+            self.prompt = "[%s]\nPress enter to continue:\n" % hosts
         # I have no idea what you're trying to do. But it's so wrong.
         else:
             raise ae("invalid pause type given. must be one of: %s" % \
@@ -99,7 +101,7 @@ class ActionModule(object):
                 # Clear out any unflushed buffered input which would
                 # otherwise be consumed by raw_input() prematurely.
                 tcflush(sys.stdin, TCIFLUSH)
-                raw_input(self.prompt)
+                self.result['user_input'] = raw_input(self.prompt.encode(sys.stdout.encoding))
         except KeyboardInterrupt:
             while True:
                 print '\nAction? (a)bort/(c)ontinue: '

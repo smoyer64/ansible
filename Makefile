@@ -5,7 +5,9 @@
 #
 # useful targets:
 #   make sdist ---------------- produce a tarball
+#   make srpm ----------------- produce a SRPM
 #   make rpm  ----------------- produce RPMs
+#   make deb-src -------------- produce a DEB source
 #   make deb ------------------ produce a DEB
 #   make docs ----------------- rebuild the manpages (results are checked in)
 #   make tests ---------------- run the tests
@@ -14,13 +16,13 @@
 ########################################################
 # variable section
 
-NAME = "ansible"
+NAME = ansible
 OS = $(shell uname -s)
 
 # Manpages are currently built with asciidoc -- would like to move to markdown
 # This doesn't evaluate until it's called. The -D argument is the
 # directory of the target file ($@), kinda like `dirname`.
-MANPAGES := docs/man/man1/ansible.1 docs/man/man1/ansible-playbook.1 docs/man/man1/ansible-pull.1 docs/man/man1/ansible-doc.1
+MANPAGES := docs/man/man1/ansible.1 docs/man/man1/ansible-playbook.1 docs/man/man1/ansible-pull.1 docs/man/man1/ansible-doc.1 docs/man/man1/ansible-galaxy.1 docs/man/man1/ansible-vault.1
 ifneq ($(shell which a2x 2>/dev/null),)
 ASCII2MAN = a2x -D $(dir $@) -d manpage -f manpage $<
 ASCII2HTMLMAN = a2x -D docs/html/man/ -d manpage -f xhtml
@@ -39,35 +41,65 @@ ifneq ($(shell which git),)
 GIT_DATE := $(shell git log -n 1 --format="%ai")
 endif
 
-ifeq ($(OS), FreeBSD)
-DATE := $(shell date -j -f "%Y-%m-%d %H:%M:%s"  "$(GIT_DATE)" +%Y%m%d%H%M)
-else
-ifeq ($(OS), Darwin)
-DATE := $(shell date -j -f "%Y-%m-%d %H:%M:%S"  "$(GIT_DATE)" +%Y%m%d%H%M)
+ifeq ($(shell echo $(OS) | egrep -c 'Darwin|FreeBSD|OpenBSD'),1)
+DATE := $(shell date -j -r $(shell git log -n 1 --format="%at") +%Y%m%d%H%M)
 else
 DATE := $(shell date --utc --date="$(GIT_DATE)" +%Y%m%d%H%M)
 endif
+
+# DEB build parameters
+DEBUILD_BIN ?= debuild
+DEBUILD_OPTS = --source-option="-I"
+DPUT_BIN ?= dput
+DPUT_OPTS ?=
+ifeq ($(OFFICIAL),yes)
+    DEB_RELEASE = 1ppa
+    # Sign OFFICIAL builds using 'DEBSIGN_KEYID'
+    # DEBSIGN_KEYID is required when signing
+    ifneq ($(DEBSIGN_KEYID),)
+        DEBUILD_OPTS += -k$(DEBSIGN_KEYID)
+    endif
+else
+    DEB_RELEASE = 0.git$(DATE)
+    # Do not sign unofficial builds
+    DEBUILD_OPTS += -uc -us
+    DPUT_OPTS += -u
 endif
+DEBUILD = $(DEBUILD_BIN) $(DEBUILD_OPTS)
+DEB_PPA ?= ppa
+# Choose the desired Ubuntu release: lucid precise saucy trusty
+DEB_DIST ?= unstable
 
 # RPM build parameters
 RPMSPECDIR= packaging/rpm
 RPMSPEC = $(RPMSPECDIR)/ansible.spec
-RPMDIST = $(shell rpm --eval '%dist')
+RPMDIST = $(shell rpm --eval '%{?dist}')
 RPMRELEASE = 1
-ifeq ($(OFFICIAL),)
+ifneq ($(OFFICIAL),yes)
     RPMRELEASE = 0.git$(DATE)
 endif
 RPMNVR = "$(NAME)-$(VERSION)-$(RPMRELEASE)$(RPMDIST)"
+
+# MOCK build parameters
+MOCK_BIN ?= mock
+MOCK_CFG ?=
+
+NOSETESTS ?= nosetests
+
+NOSETESTS3 ?= nosetests-3.3
 
 ########################################################
 
 all: clean python
 
 tests:
-	PYTHONPATH=./lib nosetests -d -v
+	PYTHONPATH=./lib $(NOSETESTS) -d -w test/units -v # Could do: --with-coverage --cover-package=ansible
 
-# To force a rebuild of the docs run 'touch VERSION && make docs'
-docs: $(MANPAGES) modulepages
+newtests:
+	PYTHONPATH=./v2:./lib $(NOSETESTS) -d -w test/v2 -v --with-coverage --cover-package=ansible
+
+newtests-py3:
+	PYTHONPATH=./v2:./lib $(NOSETESTS3) -d -w test/v2 -v --with-coverage --cover-package=ansible
 
 authors:
 	sh hacking/authors.sh
@@ -90,10 +122,10 @@ pep8:
 	@echo "# Running PEP8 Compliance Tests"
 	@echo "#############################################"
 	-pep8 -r --ignore=E501,E221,W291,W391,E302,E251,E203,W293,E231,E303,E201,E225,E261,E241 lib/ bin/
-	-pep8 -r --ignore=E501,E221,W291,W391,E302,E251,E203,W293,E231,E303,E201,E225,E261,E241 --filename "*" library/
+	# -pep8 -r --ignore=E501,E221,W291,W391,E302,E251,E203,W293,E231,E303,E201,E225,E261,E241 --filename "*" library/
 
 pyflakes:
-	pyflakes lib/ansible/*.py bin/*
+	pyflakes lib/ansible/*.py lib/ansible/*/*.py bin/*
 
 clean:
 	@echo "Cleaning up distutils stuff"
@@ -117,6 +149,8 @@ clean:
 	rm -rf deb-build
 	rm -rf docs/json
 	rm -rf docs/js
+	@echo "Cleaning up authors file"
+	rm -f AUTHORS.TXT
 
 python:
 	$(PYTHON) setup.py build
@@ -125,12 +159,26 @@ install:
 	$(PYTHON) setup.py install
 
 sdist: clean docs
-	$(PYTHON) setup.py sdist -t MANIFEST.in
+	$(PYTHON) setup.py sdist
 
-rpmcommon: sdist
+rpmcommon: $(MANPAGES) sdist
 	@mkdir -p rpm-build
 	@cp dist/*.gz rpm-build/
 	@sed -e 's#^Version:.*#Version: $(VERSION)#' -e 's#^Release:.*#Release: $(RPMRELEASE)%{?dist}#' $(RPMSPEC) >rpm-build/$(NAME).spec
+
+mock-srpm: /etc/mock/$(MOCK_CFG).cfg rpmcommon
+	$(MOCK_BIN) -r $(MOCK_CFG) --resultdir rpm-build/  --buildsrpm --spec rpm-build/$(NAME).spec --sources rpm-build/
+	@echo "#############################################"
+	@echo "Ansible SRPM is built:"
+	@echo rpm-build/*.src.rpm
+	@echo "#############################################"
+
+mock-rpm: /etc/mock/$(MOCK_CFG).cfg mock-srpm
+	$(MOCK_BIN) -r $(MOCK_CFG) --resultdir rpm-build/ --rebuild rpm-build/$(NAME)-*.src.rpm
+	@echo "#############################################"
+	@echo "Ansible RPM is built:"
+	@echo rpm-build/*.noarch.rpm
+	@echo "#############################################"
 
 srpm: rpmcommon
 	@rpmbuild --define "_topdir %(pwd)/rpm-build" \
@@ -163,32 +211,48 @@ rpm: rpmcommon
 	@echo "#############################################"
 
 debian: sdist
+	@for DIST in $(DEB_DIST) ; do \
+	    mkdir -p deb-build/$${DIST} ; \
+	    tar -C deb-build/$${DIST} -xvf dist/$(NAME)-$(VERSION).tar.gz ; \
+	    cp -a packaging/debian deb-build/$${DIST}/$(NAME)-$(VERSION)/ ; \
+	    sed -ie "s#^$(NAME) (\([^)]*\)) \([^;]*\);#ansible (\1-$(DEB_RELEASE)~$${DIST}) $${DIST};#" deb-build/$${DIST}/$(NAME)-$(VERSION)/debian/changelog ; \
+	done
+
 deb: debian
-	cp -r packaging/debian ./
-	chmod 755 debian/rules
-	fakeroot debian/rules clean
-	fakeroot dh_install
-	fakeroot debian/rules binary
+	@for DIST in $(DEB_DIST) ; do \
+	    (cd deb-build/$${DIST}/$(NAME)-$(VERSION)/ && $(DEBUILD) -b) ; \
+	done
+	@echo "#############################################"
+	@echo "Ansible DEB artifacts:"
+	@for DIST in $(DEB_DIST) ; do \
+	    echo deb-build/$${DIST}/$(NAME)_$(VERSION)-$(DEB_RELEASE)~$${DIST}_amd64.changes ; \
+	done
+	@echo "#############################################"
+
+deb-src: debian
+	@for DIST in $(DEB_DIST) ; do \
+	    (cd deb-build/$${DIST}/$(NAME)-$(VERSION)/ && $(DEBUILD) -S) ; \
+	done
+	@echo "#############################################"
+	@echo "Ansible DEB artifacts:"
+	@for DIST in $(DEB_DIST) ; do \
+	    echo deb-build/$${DIST}/$(NAME)_$(VERSION)-$(DEB_RELEASE)~$${DIST}_source.changes ; \
+	done
+	@echo "#############################################"
+
+deb-upload: deb
+	@for DIST in $(DEB_DIST) ; do \
+	    $(DPUT_BIN) $(DPUT_OPTS) $(DEB_PPA) deb-build/$${DIST}/$(NAME)_$(VERSION)-$(DEB_RELEASE)~$${DIST}_amd64.changes ; \
+	done
+
+deb-src-upload: deb-src
+	@for DIST in $(DEB_DIST) ; do \
+	    $(DPUT_BIN) $(DPUT_OPTS) $(DEB_PPA) deb-build/$${DIST}/$(NAME)_$(VERSION)-$(DEB_RELEASE)~$${DIST}_source.changes ; \
+	done
 
 # for arch or gentoo, read instructions in the appropriate 'packaging' subdirectory directory
 
-modulepages:
-	PYTHONPATH=./lib $(PYTHON) hacking/module_formatter.py -A $(VERSION) -t man -o docs/man/man3/ --module-dir=library --template-dir=hacking/templates
+webdocs: $(MANPAGES)
+	(cd docsite/; make docs)
 
-modulejson:
-	mkdir -p docs/json
-	PYTHONPATH=./lib $(PYTHON) hacking/module_formatter.py -A $(VERSION) -t json -o docs/json --module-dir=library --template-dir=hacking/templates
-
-modulejs:
-	mkdir -p docs/js
-	make modulejson
-	PYTHONPATH=./lib $(PYTHON) hacking/module_formatter.py -A $(VERSION) -t js -o docs/js --module-dir=docs/json --template-dir=hacking/templates
-
-# because this requires Sphinx it is not run as part of every build, those building the RPM and so on can ignore this
-
-webdocs:
-	(cd docsite; make docs)
-
-# just for quick testing of all the module docs
-webdocs2:
-	(cd docsite; make modules)
+docs: $(MANPAGES)

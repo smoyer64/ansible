@@ -18,27 +18,43 @@
 import ansible
 
 from ansible import utils
+from ansible.utils import template
 from ansible.runner.return_data import ReturnData
 
 class ActionModule(object):
     ''' Print statements during execution '''
 
-    NEEDS_TMPPATH = False
+    TRANSFERS_FILES = False
 
     def __init__(self, runner):
         self.runner = runner
+        self.basedir = runner.basedir
 
     def run(self, conn, tmp, module_name, module_args, inject, complex_args=None, **kwargs):
         args = {}
         if complex_args:
             args.update(complex_args)
-        args.update(utils.parse_kv(module_args))
-        if not 'msg' in args:
+
+        # attempt to prevent confusing messages when the variable didn't interpolate
+        module_args = module_args.replace("{{ ","{{").replace(" }}","}}")
+
+        kv = utils.parse_kv(module_args)
+        args.update(kv)
+
+        if not 'msg' in args and not 'var' in args:
             args['msg'] = 'Hello world!'
 
-        if 'fail' in args and utils.boolean(args['fail']):
-            result = dict(failed=True, msg=args['msg'])
-        else:
-            result = dict(msg=str(args['msg']))
+        result = {}
+        if 'msg' in args:
+            if 'fail' in args and utils.boolean(args['fail']):
+                result = dict(failed=True, msg=args['msg'])
+            else:
+                result = dict(msg=args['msg'])
+        elif 'var' in args and not utils.LOOKUP_REGEX.search(args['var']):
+            results = template.template(self.basedir, "{{ %s }}" % args['var'], inject)
+            result[args['var']] = results
+
+        # force flag to make debug output module always verbose
+        result['verbose_always'] = True
 
         return ReturnData(conn=conn, result=result)

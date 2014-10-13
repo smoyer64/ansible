@@ -1,4 +1,4 @@
-# (c) 2012-2013, Michael DeHaan <michael.dehaan@gmail.com>
+# (c) 2012-2014, Michael DeHaan <michael.dehaan@gmail.com>
 #
 # This file is part of Ansible
 #
@@ -30,35 +30,40 @@ class AsyncPoller(object):
         self.hosts_to_poll = []
         self.completed = False
 
-        # Get job id and which hosts to poll again in the future
-        jid = None
-        # True to work with & below
+        # flag to determine if at least one host was contacted
+        self.active = False
+        # True to work with the `and` below
         skipped = True
+        jid = None
         for (host, res) in results['contacted'].iteritems():
             if res.get('started', False):
                 self.hosts_to_poll.append(host)
                 jid = res.get('ansible_job_id', None)
+                self.runner.vars_cache[host]['ansible_job_id'] = jid
+                self.active = True
             else:
-                skipped = skipped & res.get('skipped', False)
+                skipped = skipped and res.get('skipped', False)
+                self.runner.vars_cache[host]['ansible_job_id'] = ''
                 self.results['contacted'][host] = res
         for (host, res) in results['dark'].iteritems():
+            self.runner.vars_cache[host]['ansible_job_id'] = ''
             self.results['dark'][host] = res
 
         if not skipped:
             if jid is None:
                 raise errors.AnsibleError("unexpected error: unable to determine jid")
             if len(self.hosts_to_poll)==0:
-                raise errors.AnsibleErrot("unexpected error: no hosts to poll")
-        self.jid = jid
+                raise errors.AnsibleError("unexpected error: no hosts to poll")
 
     def poll(self):
         """ Poll the job status.
 
             Returns the changes in this iteration."""
         self.runner.module_name = 'async_status'
-        self.runner.module_args = "jid=%s" % self.jid
+        self.runner.module_args = "jid={{ansible_job_id}}"
         self.runner.pattern = "*"
         self.runner.background = 0
+        self.runner.complex_args = None
 
         self.runner.inventory.restrict_to(self.hosts_to_poll)
         results = self.runner.run()
@@ -73,14 +78,15 @@ class AsyncPoller(object):
             else:
                 self.results['contacted'][host] = res
                 poll_results['contacted'][host] = res
-                if 'failed' in res:
-                    self.runner.callbacks.on_async_failed(host, res, self.jid)
+                if res.get('failed', False) or res.get('rc', 0) != 0:
+                    self.runner.callbacks.on_async_failed(host, res, self.runner.vars_cache[host]['ansible_job_id'])
                 else:
-                    self.runner.callbacks.on_async_ok(host, res, self.jid)
+                    self.runner.callbacks.on_async_ok(host, res, self.runner.vars_cache[host]['ansible_job_id'])
         for (host, res) in results['dark'].iteritems():
             self.results['dark'][host] = res
             poll_results['dark'][host] = res
-            self.runner.callbacks.on_async_failed(host, res, self.jid)
+            if host in self.hosts_to_poll:
+                self.runner.callbacks.on_async_failed(host, res, self.runner.vars_cache[host].get('ansible_job_id','XX'))
 
         self.hosts_to_poll = hosts
         if len(hosts)==0:
@@ -91,7 +97,7 @@ class AsyncPoller(object):
     def wait(self, seconds, poll_interval):
         """ Wait a certain time for job completion, check status every poll_interval. """
         # jid is None when all hosts were skipped
-        if self.jid is None:
+        if not self.active:
             return self.results
 
         clock = seconds - poll_interval
@@ -102,7 +108,7 @@ class AsyncPoller(object):
 
             for (host, res) in poll_results['polled'].iteritems():
                 if res.get('started'):
-                    self.runner.callbacks.on_async_poll(host, res, self.jid, clock)
+                    self.runner.callbacks.on_async_poll(host, res, self.runner.vars_cache[host]['ansible_job_id'], clock)
 
             clock = clock - poll_interval
 

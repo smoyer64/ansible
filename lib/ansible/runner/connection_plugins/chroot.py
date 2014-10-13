@@ -16,13 +16,11 @@
 # You should have received a copy of the GNU General Public License
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 
+import distutils.spawn
 import traceback
 import os
-import pipes
 import shutil
 import subprocess
-import select
-import fcntl
 from ansible import errors
 from ansible import utils
 from ansible.callbacks import vvv
@@ -30,8 +28,9 @@ from ansible.callbacks import vvv
 class Connection(object):
     ''' Local chroot based connections '''
 
-    def __init__(self, runner, host, port, **kwargs):
+    def __init__(self, runner, host, port, *args, **kwargs):
         self.chroot = host
+        self.has_pipelining = False
 
         if os.geteuid() != 0:
             raise errors.AnsibleError("chroot connection requires running as root")
@@ -45,6 +44,10 @@ class Connection(object):
         if not utils.is_executable(chrootsh):
             raise errors.AnsibleError("%s does not look like a chrootable dir (/bin/sh missing)" % self.chroot)
 
+        self.chroot_cmd = distutils.spawn.find_executable('chroot')
+        if not self.chroot_cmd:
+            raise errors.AnsibleError("chroot command not found in PATH")
+
         self.runner = runner
         self.host = host
         # port is unused, since this is local
@@ -57,17 +60,21 @@ class Connection(object):
 
         return self
 
-    def exec_command(self, cmd, tmp_path, sudo_user, sudoable=False, executable='/bin/sh'):
+    def exec_command(self, cmd, tmp_path, sudo_user=None, sudoable=False, executable='/bin/sh', in_data=None, su=None, su_user=None):
         ''' run a command on the chroot '''
+
+        if su or su_user:
+            raise errors.AnsibleError("Internal Error: this module does not support running commands via su")
+
+        if in_data:
+            raise errors.AnsibleError("Internal Error: this module does not support optimized module pipelining")
 
         # We enter chroot as root so sudo stuff can be ignored
 
-        chroot_cmd = '/usr/sbin/chroot'
-
         if executable:
-            local_cmd = [chroot_cmd, self.chroot, executable, '-c', cmd]
+            local_cmd = [self.chroot_cmd, self.chroot, executable, '-c', cmd]
         else:
-            local_cmd = '%s "%s" %s' % (chroot_cmd, self.chroot, cmd)
+            local_cmd = '%s "%s" %s' % (self.chroot_cmd, self.chroot, cmd)
 
         vvv("EXEC %s" % (local_cmd), host=self.chroot)
         p = subprocess.Popen(local_cmd, shell=isinstance(local_cmd, basestring),

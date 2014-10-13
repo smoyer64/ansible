@@ -17,6 +17,7 @@
 
 import os
 import pipes
+from ansible.utils import template
 from ansible import utils
 from ansible import errors
 from ansible.runner.return_data import ReturnData
@@ -24,14 +25,13 @@ import base64
 
 class ActionModule(object):
 
+    TRANSFERS_FILES = True
+
     def __init__(self, runner):
         self.runner = runner
 
     def run(self, conn, tmp, module_name, module_args, inject, complex_args=None, **kwargs):
         ''' handler for template operations '''
-
-        # note: since this module just calls the copy module, the --check mode support
-        # can be implemented entirely over there
 
         if not self.runner.is_playbook:
             raise errors.AnsibleError("in current versions of ansible, templates are only usable in playbooks")
@@ -55,27 +55,36 @@ class ActionModule(object):
         if 'first_available_file' in inject:
             found = False
             for fn in self.runner.module_vars.get('first_available_file'):
-                fnt = utils.template(self.runner.basedir, fn, inject)
+                fn_orig = fn
+                fnt = template.template(self.runner.basedir, fn, inject)
                 fnd = utils.path_dwim(self.runner.basedir, fnt)
+                if not os.path.exists(fnd) and '_original_file' in inject:
+                    fnd = utils.path_dwim_relative(inject['_original_file'], 'templates', fnt, self.runner.basedir, check=False)
                 if os.path.exists(fnd):
-                    source = fnt
+                    source = fnd
                     found = True
                     break
             if not found:
                 result = dict(failed=True, msg="could not find src in first_available_file list")
                 return ReturnData(conn=conn, comm_ok=False, result=result)
         else:
-            source = utils.template(self.runner.basedir, source, inject)
+            source = template.template(self.runner.basedir, source, inject)
+                
+            if '_original_file' in inject:
+                source = utils.path_dwim_relative(inject['_original_file'], 'templates', source, self.runner.basedir)
+            else:
+                source = utils.path_dwim(self.runner.basedir, source)
 
-        if dest.endswith("/"):
+
+        if dest.endswith("/"): # CCTODO: Fix path for Windows hosts.
             base = os.path.basename(source)
             dest = os.path.join(dest, base)
 
         # template the source data locally & get ready to transfer
         try:
-            resultant = utils.template_from_file(self.runner.basedir, source, inject)
+            resultant = template.template_from_file(self.runner.basedir, source, inject, vault_password=self.runner.vault_pass)
         except Exception, e:
-            result = dict(failed=True, msg=str(e))
+            result = dict(failed=True, msg=type(e).__name__ + ": " + str(e))
             return ReturnData(conn=conn, comm_ok=False, result=result)
 
         local_md5 = utils.md5s(resultant)
@@ -101,18 +110,38 @@ class ActionModule(object):
             xfered = self.runner._transfer_str(conn, tmp, 'source', resultant)
 
             # fix file permissions when the copy is done as a different user
-            if self.runner.sudo and self.runner.sudo_user != 'root':
-                self.runner._low_level_exec_command(conn, "chmod a+r %s" % xfered, tmp)
+            if self.runner.sudo and self.runner.sudo_user != 'root' or self.runner.su and self.runner.su_user != 'root':
+                self.runner._remote_chmod(conn, 'a+r', xfered, tmp)
 
             # run the copy module
-            module_args = "%s src=%s dest=%s" % (module_args, pipes.quote(xfered), pipes.quote(dest))
+            new_module_args = dict(
+               src=xfered,
+               dest=dest,
+               original_basename=os.path.basename(source),
+               follow=True,
+            )
+            module_args_tmp = utils.merge_module_args(module_args, new_module_args)
 
-            if self.runner.check:
+            if self.runner.noop_on_check(inject):
                 return ReturnData(conn=conn, comm_ok=True, result=dict(changed=True), diff=dict(before_header=dest, after_header=source, before=dest_contents, after=resultant))
             else:
-                res = self.runner._execute_module(conn, tmp, 'copy', module_args, inject=inject, complex_args=complex_args)
-                res.diff = dict(before=dest_contents, after=resultant)
+                res = self.runner._execute_module(conn, tmp, 'copy', module_args_tmp, inject=inject, complex_args=complex_args)
+                if res.result.get('changed', False):
+                    res.diff = dict(before=dest_contents, after=resultant)
                 return res
         else:
+            # when running the file module based on the template data, we do
+            # not want the source filename (the name of the template) to be used,
+            # since this would mess up links, so we clear the src param and tell
+            # the module to follow links
+            new_module_args = dict(
+                src=None,
+                follow=True,
+            )
+            # be sure to inject the check mode param into the module args and
+            # rely on the file module to report its changed status
+            if self.runner.noop_on_check(inject):
+                new_module_args['CHECKMODE'] = True
+            module_args = utils.merge_module_args(module_args, new_module_args)
             return self.runner._execute_module(conn, tmp, 'file', module_args, inject=inject, complex_args=complex_args)
 

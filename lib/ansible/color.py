@@ -1,4 +1,4 @@
-# (c) 2012, Michael DeHaan <michael.dehaan@gmail.com>
+# (c) 2012-2014, Michael DeHaan <michael.dehaan@gmail.com>
 #
 # This file is part of Ansible
 #
@@ -15,13 +15,13 @@
 # You should have received a copy of the GNU General Public License
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 
-import os
 import sys
+import constants
 
 ANSIBLE_COLOR=True
-if os.getenv("ANSIBLE_NOCOLOR") is not None:
+if constants.ANSIBLE_NOCOLOR:
     ANSIBLE_COLOR=False
-elif not sys.stdout.isatty():
+elif not hasattr(sys.stdout, 'isatty') or not sys.stdout.isatty():
     ANSIBLE_COLOR=False
 else:
     try:
@@ -36,13 +36,13 @@ else:
         # curses returns an error (e.g. could not find terminal)
         ANSIBLE_COLOR=False
 
-if os.getenv("ANSIBLE_FORCE_COLOR") is not None:
+if constants.ANSIBLE_FORCE_COLOR:
         ANSIBLE_COLOR=True
 
 # --- begin "pretty"
 #
 # pretty - A miniature library that provides a Python print and stdout
-# wrapper that makes colored terminal text easier to use (eg. without
+# wrapper that makes colored terminal text easier to use (e.g. without
 # having to mess around with ANSI escape sequences). This code is public
 # domain - there is no license except that you must leave this header.
 #

@@ -1,4 +1,4 @@
-# (c) 2012, Michael DeHaan <michael.dehaan@gmail.com>
+# (c) 2012-2014, Michael DeHaan <michael.dehaan@gmail.com>
 #
 # This file is part of Ansible
 #
@@ -25,7 +25,7 @@ class ActionModule(object):
     def run(self, conn, tmp, module_name, module_args, inject, complex_args=None, **kwargs):
         ''' transfer the given module name, plus the async module, then run it '''
 
-        if self.runner.check:
+        if self.runner.noop_on_check(inject):
             return ReturnData(conn=conn, comm_ok=True, result=dict(skipped=True, msg='check mode not supported for this module'))
 
         # shell and command module are the same
@@ -33,8 +33,11 @@ class ActionModule(object):
             module_name = 'command'
             module_args += " #USE_SHELL"
 
+        if "tmp" not in tmp:
+            tmp = self.runner._make_tmp_path(conn)
+
         (module_path, is_new_style, shebang) = self.runner._copy_module(conn, tmp, module_name, module_args, inject, complex_args=complex_args)
-        self.runner._low_level_exec_command(conn, "chmod a+rx %s" % module_path, tmp)
+        self.runner._remote_chmod(conn, 'a+rx', module_path, tmp)
 
         return self.runner._execute_module(conn, tmp, 'async_wrapper', module_args,
            async_module=module_path,

@@ -20,7 +20,7 @@ import ansible
 from ansible.callbacks import vv
 from ansible.errors import AnsibleError as ae
 from ansible.runner.return_data import ReturnData
-from ansible.utils import parse_kv, template
+from ansible.utils import parse_kv
 from ansible.inventory.host import Host
 from ansible.inventory.group import Group
 
@@ -29,14 +29,14 @@ class ActionModule(object):
 
     ### We need to be able to modify the inventory
     BYPASS_HOST_LOOP = True
-    NEEDS_TMPPATH = False
+    TRANSFERS_FILES = False
 
     def __init__(self, runner):
         self.runner = runner
 
     def run(self, conn, tmp, module_name, module_args, inject, complex_args=None, **kwargs):
 
-        if self.runner.check:
+        if self.runner.noop_on_check(inject):
             return ReturnData(conn=conn, comm_ok=True, result=dict(skipped=True, msg='check mode not supported for this module'))
 
         args = {}
@@ -46,44 +46,61 @@ class ActionModule(object):
         if not 'hostname' in args and not 'name' in args:
             raise ae("'name' is a required argument.")
 
-        result = {'changed': True}
+        result = {}
 
         # Parse out any hostname:port patterns
-        new_hostname = args.get('hostname', args.get('name', None))
-        vv("creating host via 'add_host': hostname=%s" % new_hostname)
+        new_name = args.get('name', args.get('hostname', None))
+        vv("creating host via 'add_host': hostname=%s" % new_name)
 
-        if ":" in new_hostname:
-            new_hostname, new_port = new_hostname.split(":")
+        if ":" in new_name:
+            new_name, new_port = new_name.split(":")
             args['ansible_ssh_port'] = new_port
         
-        # create host and get inventory    
-        new_host = Host(new_hostname)
+        # redefine inventory and get group "all"
         inventory = self.runner.inventory
-        
+        allgroup = inventory.get_group('all')
+
+        # check if host in cache, add if not
+        if new_name in inventory._hosts_cache:
+            new_host = inventory._hosts_cache[new_name]
+        else:
+            new_host = Host(new_name)
+            # only groups can be added directly to inventory
+            inventory._hosts_cache[new_name] = new_host
+            allgroup.add_host(new_host)
+
         # Add any variables to the new_host
         for k in args.keys():
             if not k in [ 'name', 'hostname', 'groupname', 'groups' ]:
                 new_host.set_variable(k, args[k]) 
                 
         
-        # add the new host to the 'all' group
-        allgroup = inventory.get_group('all')
-        allgroup.add_host(new_host)
-        result['changed'] = True
-       
-        groupnames = args.get('groupname', args.get('groups', '')) 
+        groupnames = args.get('groupname', args.get('groups', args.get('group', ''))) 
         # add it to the group if that was specified
-        if groupnames != '':
+        if groupnames:
             for group_name in groupnames.split(","):
+                group_name = group_name.strip()
                 if not inventory.get_group(group_name):
                     new_group = Group(group_name)
                     inventory.add_group(new_group)
+                    new_group.vars = inventory.get_group_variables(group_name, vault_password=inventory._vault_password)
                 grp = inventory.get_group(group_name)
                 grp.add_host(new_host)
-            vv("added host to group via add_host module: %s" % group_name)
+
+                # add this host to the group cache
+                if inventory._groups_list is not None:
+                    if group_name in inventory._groups_list:
+                        if new_host.name not in inventory._groups_list[group_name]:
+                            inventory._groups_list[group_name].append(new_host.name)
+
+                vv("added host to group via add_host module: %s" % group_name)
             result['new_groups'] = groupnames.split(",")
             
-        result['new_host'] = new_hostname
+        result['new_host'] = new_name
+
+        # clear pattern caching completely since it's unpredictable what
+        # patterns may have referenced the group
+        inventory.clear_pattern_cache()
         
         return ReturnData(conn=conn, comm_ok=True, result=result)
 

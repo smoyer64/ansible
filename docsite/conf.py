@@ -16,16 +16,20 @@
 import sys
 import os
 
+# pip install sphinx_rtd_theme
+#import sphinx_rtd_theme
+#html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
+
 # If your extensions are in another directory, add it here. If the directory
 # is relative to the documentation root, use os.path.abspath to make it
 # absolute, like shown here.
 #sys.path.append(os.path.abspath('some/directory'))
-
+#
 sys.path.insert(0, os.path.join('ansible', 'lib'))
 sys.path.append(os.path.abspath('_themes'))
 
 VERSION='0.01'
-AUTHOR='Michael DeHaan'
+AUTHOR='Ansible, Inc'
 
 
 # General configuration
@@ -51,7 +55,7 @@ master_doc = 'index'
 
 # General substitutions.
 project = 'Ansible Documentation'
-copyright = "2012 Michael DeHaan"
+copyright = "2013 Ansible, Inc"
 
 # The default replacements for |version| and |release|, also used in various
 # other places throughout the built documents.
@@ -101,13 +105,13 @@ pygments_style = 'sphinx'
 # -----------------------
 
 html_theme_path = ['_themes']
-html_theme = 'bootstrap'
+html_theme = 'srtd'
 html_short_title = 'Ansible Documentation'
 
 # The style sheet to use for HTML and HTML Help pages. A file of that name
 # must exist either in Sphinx' static/ path, or in one of the custom paths
 # given in html_static_path.
-html_style = 'default.css'
+#html_style = 'solar.css'
 
 # The name for this set of Sphinx documents.  If None, it defaults to
 # "<project> v<release> documentation".
@@ -123,7 +127,7 @@ html_title = 'Ansible Documentation'
 # The name of an image file (within the static path) to use as favicon of the
 # docs.  This file should be a Windows icon file (.ico) being 16x16 or 32x32
 # pixels large.
-html_favicon = 'favicon.ico'
+#html_favicon = 'favicon.ico'
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -182,7 +186,7 @@ htmlhelp_basename = 'Poseidodoc'
 # (source start file, target name, title, author, document class
 # [howto/manual]).
 latex_documents = [
-  ('index', 'ansible.tex', 'Ansible Documentation',
+  ('index', 'ansible.tex', 'Ansible 1.2 Documentation',
    AUTHOR, 'manual'),
 ]
 

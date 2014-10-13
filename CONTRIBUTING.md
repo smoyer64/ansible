@@ -1,73 +1,27 @@
-Contributing to Ansible
-=======================
+Welcome To Ansible GitHub
+=========================
 
-It is required that you read the following information to learn how to contribute to this project.
+Hi! Nice to see you here!
 
-Branch Info
-===========
+If you'd like to ask a question
+===============================
 
-Here's how to understand the branches.
+Please see [this web page ](http://docs.ansible.com/community.html) for community information, which includes pointers on how to ask questions on the [mailing lists](http://docs.ansible.com/community.html#mailing-list-information) and IRC.  
 
-   * The devel branch corresponds to the latest ongoing release
-   * Various release-X.Y branches exist for previous releases
-   * All feature work happens on the development branch.
-   * Major bug fixes will be made to the last release branch only
-   * See CHANGELOG.md for release notes to track each release.
+The github issue tracker is not the best place for questions for various reasons, but both IRC and the mailing list are very helpful places for those things, and that page has the pointers to those.
 
-Patch Instructions
-==================
+If you'd like to contribute code
+================================
 
-Contributions to the core and modules are greatly welcome.
+Please see [this web page](http://docs.ansible.com/community.html) for information about the contribution process.  Important license agreement information is also included on that page.
 
-   * Required Process:
-       * Submit github pull requests to the "ansible/devel" branch for features
-       * Fixes for bugs may also be submitted to "ansible/release-X.Y" for the last release
-       * Make sure "make tests" passes before submitting any requests.
-   * Bonus points:
-       * Joining the mailing list
-       * Fixing bugs instead of sending bug reports.
-       * Using squash merges
-       * Updating the "rst/*" files in the "docsite/" directory and "docs/" manpage content
-       * Adding more unit tests
-   * Avoid:
-       * Sending patches to the mailing list directly.
-       * Sending feature pull requests to the 'release' branch instead of the devel branch
-       * Sending pull requests to mpdehaan's personal ansible fork.
-       * Sending pull requests about more than one feature in the same pull request.
-       * Whitespace restructuring
-       * Large scale refactoring without a discussion on the list
+If you'd like to file a bug
+===========================
 
-Coding Standards
-================
+I'd also read the community page above, but in particular, make sure you copy [this issue template](https://github.com/ansible/ansible/blob/devel/ISSUE_TEMPLATE.md) into your ticket description.  We have a friendly neighborhood bot that will remind you if you forget :)  This template helps us organize tickets faster and prevents asking some repeated questions, so it's very helpful to us and we appreciate your help with it.
 
-We're not too strict on style considerations, but we require:
+Also please make sure you are testing on the latest released version of Ansible or the development branch.
 
-   * python 2.6 compliant code, unless in ansible modules, then python *2.4* compliant code (no 'with', etc)
-   * 4-space indents, no tabs except in Makefiles
-   * under_scores for method names and variables, not camelCase
-   * GPLv3 license headers on all files, with copyright on new files with your name on it
-   * no single-line if statements, deeply nested list comprehensions, or clever use of metaclasses -- keep it simple
-   * comments where appropriate
-
-Testing Requirements
-====================
-
-Automation tests are run by "make tests" and contain a mixture of integration and "unit" level tests.  To run the tests you need the following:
-
-   * nose must be installed - https://nose.readthedocs.org/en/latest/
-   * ansible tests require paramiko, PyYAML python modules, and python 2.6+.
-   * Some tests require additional components (facter, ohai) and will be skipped if not available.
-   * Your user environment should allow "ssh 127.0.0.1"
-     without a password - so a key held in ssh-agent and an authorized_keys entry.
-
-If your module does not require any additional dependencies beyond ansible-core, it is a good idea to write some
-tests for the module.
-
-Contributors License Agreement
-==============================
-
-By contributing you agree that these contributions are your own (or approved by your employer) and you grant a full, complete, irrevocable
-copyright license to all users and developers of the project, present and future, persusant to the license of the project.
-
+Thanks!
 
 

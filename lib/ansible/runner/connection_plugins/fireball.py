@@ -34,9 +34,10 @@ except ImportError:
 class Connection(object):
     ''' ZeroMQ accelerated connection '''
 
-    def __init__(self, runner, host, port, **kwargs):
+    def __init__(self, runner, host, port, *args, **kwargs):
 
         self.runner = runner
+        self.has_pipelining = False
 
         # attempt to work around shared-memory funness
         if getattr(self.runner, 'aes_keys', None):
@@ -67,13 +68,20 @@ class Connection(object):
 
         return self
 
-    def exec_command(self, cmd, tmp_path, sudo_user, sudoable=False, executable='/bin/sh'):
+    def exec_command(self, cmd, tmp_path, sudo_user, sudoable=False, executable='/bin/sh', in_data=None, su_user=None, su=None):
         ''' run a command on the remote host '''
+
+        if in_data:
+            raise errors.AnsibleError("Internal Error: this module does not support optimized module pipelining")
 
         vvv("EXEC COMMAND %s" % cmd)
 
-        if self.runner.sudo and sudoable:
-            raise errors.AnsibleError("fireball does not use sudo, but runs as whoever it was initiated as.  (That itself is where to use sudo).")
+        if (self.runner.sudo and sudoable) or (self.runner.su and su):
+            raise errors.AnsibleError(
+                "When using fireball, do not specify sudo or su to run your tasks. " +
+                "Instead sudo the fireball action with sudo. " +
+                "Task will communicate with the fireball already running in sudo mode."
+            )
 
         data = dict(
             mode='command',

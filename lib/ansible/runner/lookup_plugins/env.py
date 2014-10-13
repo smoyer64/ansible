@@ -16,6 +16,7 @@
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 
 from ansible import utils, errors
+from ansible.utils import template
 import os
 
 class LookupModule(object):
@@ -23,9 +24,16 @@ class LookupModule(object):
     def __init__(self, basedir=None, **kwargs):
         self.basedir = basedir
 
-    def run(self, terms, **kwargs):
+    def run(self, terms, inject=None, **kwargs):
+
+        try:
+            terms = template.template(self.basedir, terms, inject)
+        except Exception, e:
+            pass
+
         if isinstance(terms, basestring):
             terms = [ terms ]
+
         ret = []
         for term in terms:
             var = term.split()[0]
