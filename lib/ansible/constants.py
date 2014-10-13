@@ -16,7 +16,10 @@
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 
 import os
-import pwd
+
+if 'nt' != os.name:
+    import pwd
+
 import sys
 import ConfigParser
 from string import ascii_letters, digits
@@ -88,7 +91,8 @@ def shell_expand_path(path):
 
 p = load_config_file()
 
-active_user   = pwd.getpwuid(os.geteuid())[0]
+if 'nt' != os.name:
+    active_user   = pwd.getpwuid(os.geteuid())[0]
 
 # check all of these extensions when looking for yaml files for things like
 # group variables -- really anything we can load
